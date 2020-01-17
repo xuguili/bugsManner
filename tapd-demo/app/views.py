@@ -2,12 +2,14 @@ from app import app
 from flask import request
 from flask import session
 import json
-from app.models import LoginUser,Menus,Need,Bugs,Iteration,Report
+from app.models import LoginUser,Menus,Need,Bugs,Iteration,Report,Files
 import hashlib
 from app import db
 from sqlalchemy import or_,desc
 import datetime
 from app.email import send_email
+import time
+
 
 
 @app.route('/')
@@ -984,7 +986,8 @@ def addReport():
     bug = request.form.get('bug')
     purposes = request.form.get('purposes')
     environment = request.form.get('environment')
-    useCase = request.files['file'].filename
+
+    files = request.files.getlist('file')
 
     version = request.form.get('version')
     updateContext = request.form.get('updateContext')
@@ -1026,8 +1029,7 @@ def addReport():
                                 "<div><b>二、测试目的</b></div>" + purposes + \
                                 "<div><b>三、测试环境</b></div>" + environment + \
                                 "<div><b>四、版本需求列表</b></div>" + needs + \
-                                "<div><b>五、版本缺陷列表</b></div>" + bugs + \
-                                "<div><b>六、测试用例</b></div>" + useCase + "</body></html>"
+                                "<div><b>五、版本缺陷列表</b></div>" + bugs + "</body></html>"
 
             send_email(subject, sender, recipients+copier, text_body, text_html)
             status = "已发送"
@@ -1050,10 +1052,20 @@ def addReport():
             status="草稿"
 
     report = Report(subject=subject,recipients=";".join(recipients),copier=";".join(copier),conclusion=conclusion, purposes=purposes, environment=environment,
-                        useCase=useCase, version=version, updateContext=updateContext, testReport=testReport,
-                            attention=attention, sendTime=sendTime, creater=creater, type=type, status=status,needs=need,bugs=bug)
+                    version=version, updateContext=updateContext, testReport=testReport,attention=attention, sendTime=sendTime,
+                    creater=creater, type=type, status=status,needs=need,bugs=bug)
     db.session.add(report)
     db.session.commit()
+
+    if files:
+        for fname in files:
+            new_fname = r'F:/tapd-demo/files/'  + fname.filename
+            fname.save(new_fname)  # 保存文件到指定路径
+            # 文件下载地址
+            file_download = "http://localhost:8088/" + fname.filename
+            file = Files(name=fname.filename,address=file_download,report_id=report.id)
+            db.session.add(file)
+            db.session.commit()
 
 
     return 'success'
@@ -1069,7 +1081,8 @@ def editReport():
     bug = request.form.get('bug')
     purposes = request.form.get('purposes')
     environment = request.form.get('environment')
-    useCase = request.files['file'].filename
+
+    files = request.files.getlist('file')
 
     version = request.form.get('version')
     updateContext = request.form.get('updateContext')
@@ -1122,7 +1135,7 @@ def editReport():
                         "<div><b>三、测试环境</b></div>" + environment + \
                         "<div><b>四、版本需求列表</b></div>" + needs + \
                         "<div><b>五、版本缺陷列表</b></div>" + bugs + \
-                        "<div><b>六、测试用例</b></div>" + useCase + "</body></html>"
+                        "</body></html>"
 
             send_email(subject, sender, recipients+copier, text_body, text_html)
             status="已发送"
@@ -1138,11 +1151,24 @@ def editReport():
         report.conclusion = conclusion
         report.purposes = purposes
         report.environment = environment
-        report.useCase = useCase
         report.sendTime = sendTime
         report.status = status
         report.needs = need
         report.bugs = bug
+
+        if files:
+
+            for fname in files:
+                new_fname = r'F:/tapd-demo/files/' + fname.filename
+                fname.save(new_fname)  # 保存文件到指定路径
+
+                file = Files.query.filter(Files.report_id == id).all()
+                for f in file:
+
+                    f.name = fname.filename
+                    f.file_download = "http://localhost:8088/" + fname.filename
+
+                db.session.commit()
 
         db.session.commit()
 
@@ -1188,84 +1214,98 @@ def view():
     """
     id = request.args.get('id')
     report = Report.query.filter(Report.id==id).first()
+    if report:
 
-    recipientList = report.recipients.split(';')
-    recipient=""
-    for r in recipientList:
-        loginUser = LoginUser.query.filter(LoginUser.email==r).first()
-        if recipient=="":
-            recipient = loginUser.username
-        else:
-            recipient = recipient+ ';' + loginUser.username
-
-
-    copierList = report.copier.split(';')
-    copier = ""
-    for c in copierList:
-        loginUser = LoginUser.query.filter(LoginUser.email == c).first()
-        if copier=="":
-            copier = loginUser.username
-        else:
-            copier = copier+';' + loginUser.username
+        recipientList = report.recipients.split(';')
+        recipient=""
+        for r in recipientList:
+            loginUser = LoginUser.query.filter(LoginUser.email==r).first()
+            if recipient=="":
+                recipient = loginUser.username
+            else:
+                recipient = recipient+ ';' + loginUser.username
 
 
-    result ={}
+        copierList = report.copier.split(';')
+        copier = ""
+        for c in copierList:
+            loginUser = LoginUser.query.filter(LoginUser.email == c).first()
+            if loginUser:
+                if copier=="":
+                    copier = loginUser.username
+                else:
+                    copier = copier+';' + loginUser.username
 
-    dict={}
-    dict["id"] = report.id
-    dict["subject"] = report.subject
-    dict["conclusion"] = report.conclusion
-    dict["purposes"] = report.purposes
-    dict["environment"] = report.environment
-    dict["useCase"] = report.useCase
-    dict["version"] = report.version
-    dict["updateContext"] = report.updateContext
-    dict["testReport"] = report.testReport
-    dict["attention"] = report.attention
-    dict["type"] = report.type
-    dict['recipient'] = recipient
-    dict['copier'] = copier #抄送者的姓名
-    dict['copiers'] = report.copier #抄送者的邮箱
-    dict['recipients'] = report.recipients
-    need_list = []
-    needIds = report.needs.split(',')
-    for needId in needIds:
-        need = Need.query.filter(Need.id == needId).first()
-        need_dict = {}
-        need_dict["id"] = str(need.id)
-        need_dict["title"] = need.title
-        need_dict["priority"] = need.priority
-        need_dict["iteration"] = need.iteration
-        need_dict["status"] = need.status
-        need_dict["handler"] = need.handler
-        need_dict["start_time"] = need.start_time
-        need_dict["end_time"] = need.end_time
-        need_dict["type"] = need.type
-        need_list.append(need_dict)
+        result ={}
 
-    dict['need']=need_list
+        dict={}
+        dict["id"] = report.id
+        dict["subject"] = report.subject
+        dict["conclusion"] = report.conclusion
+        dict["purposes"] = report.purposes
+        dict["environment"] = report.environment
+        dict["useCase"] = report.useCase
+        dict["version"] = report.version
+        dict["updateContext"] = report.updateContext
+        dict["testReport"] = report.testReport
+        dict["attention"] = report.attention
+        dict["type"] = report.type
+        dict['recipient'] = recipient
+        dict['copier'] = copier #抄送者的姓名
+        dict['copiers'] = report.copier #抄送者的邮箱
+        dict['recipients'] = report.recipients
+        need_list = []
+        needIds = report.needs.split(',')
+        for needId in needIds:
+            need = Need.query.filter(Need.id == needId).first()
+            if need:
+                need_dict = {}
+                need_dict["id"] = str(need.id)
+                need_dict["title"] = need.title
+                need_dict["priority"] = need.priority
+                need_dict["iteration"] = need.iteration
+                need_dict["status"] = need.status
+                need_dict["handler"] = need.handler
+                need_dict["start_time"] = need.start_time
+                need_dict["end_time"] = need.end_time
+                need_dict["type"] = need.type
+                need_list.append(need_dict)
+
+        dict['need']=need_list
 
 
-    bug_list = []
-    bugIds = report.bugs.split(',')
-    for bugId in bugIds:
-        bug = Bugs.query.filter(Bugs.id == bugId).first()
-        createTime = bug.createTime.strftime("%Y-%m-%d")
-        bug_dict = {}
-        bug_dict['id'] = bug.id
-        bug_dict['title'] = bug.title
-        bug_dict['severity'] = bug.severity
-        bug_dict['priority'] = bug.priority
-        bug_dict['iteration'] = bug.iteration
-        bug_dict['status'] = bug.status
-        bug_dict['handler'] = bug.handler
-        bug_dict['creater'] = bug.creater
-        bug_dict['createTime'] = createTime
-        bug_list.append(bug_dict)
+        bug_list = []
+        bugIds = report.bugs.split(',')
+        for bugId in bugIds:
+            bug = Bugs.query.filter(Bugs.id == bugId).first()
+            if bug:
+                createTime = bug.createTime.strftime("%Y-%m-%d")
+                bug_dict = {}
+                bug_dict['id'] = bug.id
+                bug_dict['title'] = bug.title
+                bug_dict['severity'] = bug.severity
+                bug_dict['priority'] = bug.priority
+                bug_dict['iteration'] = bug.iteration
+                bug_dict['status'] = bug.status
+                bug_dict['handler'] = bug.handler
+                bug_dict['creater'] = bug.creater
+                bug_dict['createTime'] = createTime
+                bug_list.append(bug_dict)
 
-    dict['bug'] = bug_list
+        dict['bug'] = bug_list
 
-    result.update(dict)
+        file_list = []
+        files = Files.query.filter(Files.report_id == report.id).all()
+        if files:
+            for file in files:
+                file_dict = {}
+                file_dict['id'] = file.id
+                file_dict['name'] = file.name
+                file_dict['url'] = file.address
+                file_list.append(file_dict)
+
+        dict['files'] = file_list
+        result.update(dict)
 
     data = {
         "code":"200",
@@ -1287,6 +1327,11 @@ def deleteReport():
     id = request.args.get('id')
 
     report = Report.query.filter(Report.id==id).first()
+    files = Files.query.filter(Files.report_id == id).all()
+
+    if files:
+        for file in files:
+            db.session.delete(file)
     db.session.delete(report)
     db.session.commit()
 
@@ -1299,10 +1344,14 @@ def batchDeleteReport():
     批量删除报告
     """
     ids = request.args.get('ids')
-    report_ids = ids.split(',')
+    ids = ids.split(',')
 
-    for report_id in report_ids:
-        r = Report.query.get(int(report_id))
+    for id in ids:
+        r = Report.query.get(int(id))
+        fs = Files.query.filter(Files.report_id==id).all()
+        if fs:
+            for f in fs:
+                db.session.delete(f)
         db.session.delete(r)
         db.session.commit()
     return "success"

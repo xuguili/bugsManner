@@ -63,10 +63,9 @@
                     </div>
                 </el-form-item>
                 <el-form-item label="测试用例">
-                    <el-upload class="upload-demo" ref="upload" action="http://localhost:5000/reportForms/report/addReport"
-                               name="file" :data="addForm" :on-success="submitSuccesss" :auto-upload="false">
+                    <el-upload class="upload-demo" ref="upload" action="" :http-request="handleUpload"
+                                :auto-upload="false">
                         <el-button slot="trigger" size="medium" icon="el-icon-folder" type="primary">选取文件</el-button>
-
                     </el-upload>
                 </el-form-item>
                 <el-form-item label="报告分类" prop="type" hidden>
@@ -160,7 +159,8 @@
 </template>
 
 <script>
-    import { getUserName,listNeed,listBug } from "../../../api/api.js";
+    import axios from 'axios';
+    import { getUserName,listNeed,listBug,addReport } from "../../../api/api.js";
 
     export default {
         data() {
@@ -197,6 +197,7 @@
                     copier:'',
                     conclusion: '',
                     purposes: '',
+                    environment:'',
                     need:'',
                     bug:'',
                     useCase: '',
@@ -205,17 +206,58 @@
                 },
                 addFormRules: {
                     subject: [{required: true, message: '请输入邮件主题', trigger: 'blur'}],
-                    recipient: [{required: true, message: '请选择收件人', trigger: 'blur'}]
+                 //   recipient: [{required: true, message: '请选择收件人', trigger: 'blur'}]
                 },
+                files:[],
             }
         },
         methods: {
+            handleUpload(param) {
+                this.files.push(param.file);// 一般情况下是在这里创建FormData对象，但我们需要上传多个文件，为避免发送多次请求，因此在这里只进行文件的获取，param可以拿到文件上传的所有信息
+            },
+
 
             handleCancle() {
                 this.$router.push('/reportforms/report/1');
             },
             //预览邮件
             handleView(){
+               let names = "";//收件人姓名
+				for (var i in this.addForm.recipient) {
+					let target = this.addForm.recipient[i];
+
+    				let obj = this.recipients.find((item)=>{
+      					return item.email === target;//筛选出匹配数据
+					});
+    				if (names==""){
+    					names = obj.loginName;
+					}
+    				else{
+    					names = names + ";" + obj.loginName;
+					}
+
+				}
+				this.addForm.names = names;
+
+				let copier_names = "";//抄送人姓名
+				for (var j in this.addForm.copier) {
+					let target = this.addForm.copier[j];
+
+    				let obj = this.copiers.find((item)=>{
+      					return item.email === target;//筛选出匹配数据
+					});
+    				if (copier_names==""){
+    					copier_names = obj.loginName;
+					}
+    				else{
+    					copier_names = copier_names + ";" + obj.loginName;
+					}
+				}
+				this.addForm.copier_names = copier_names;
+
+				this.addForm.need = this.currentneed;
+				this.addForm.bug = this.currentbug;
+
                 this.$router.push({path:'/viewTestReport',query: { addForm: this.addForm }});
 
             },
@@ -309,12 +351,6 @@
 				this.listBugVisible=false;
 			},
 
-            // handleFilePreview(file){
-            //     console.log(file);
-            // },
-            // handleFileRemove(){
-            //     console.log(file);
-            // },
             //发送邮件即新增报告
             sendMail: function (isSend) {
                 this.$refs.addForm.validate((valid) => {
@@ -322,37 +358,52 @@
                         this.$confirm('确认添加吗？', '提示', {}).then(() => {
                             this.addForm.isSend = isSend;
 
-                            this.addForm.recipient = this.addForm.recipient.join(",");
-                            this.addForm.copier = this.addForm.copier.join(",");
-
                             let ids = new Array();
                             for (let i in this.currentneed){
                                 ids.push(this.currentneed[i].id);
                             }
-                            this.addForm.need = ids.toString();
 
                             let bug_ids = new Array();
                             for (let i in this.currentbug){
                                 bug_ids.push(this.currentbug[i].id);
                             }
-                            this.addForm.bug = bug_ids.toString();
 
-                            this.$refs.upload.submit();
+                            this.$refs.upload.submit();// 这里是执行文件上传的函数，其实也就是获取我们要上传的文件
 
+                            let fileData = new FormData();
+                            fileData.append('subject', this.addForm.subject);
+							fileData.append('recipient', this.addForm.recipient.join(","));
+							fileData.append('copier', this.addForm.copier.join(","));
+							fileData.append('conclusion', this.addForm.conclusion);
+							fileData.append('purposes', this.addForm.purposes);
+							fileData.append('environment', this.addForm.environment);
+							fileData.append('need', ids.toString());
+							fileData.append('bug', bug_ids.toString());
+							fileData.append('type', this.addForm.type);
+
+                             fileData.append('isSend', this.addForm.isSend);
+
+                            this.files.forEach(function (file) {// 因为要上传多个文件，所以需要遍历
+                                fileData.append('file', file);
+                            });
+
+
+                            addReport(fileData).then((res) => {
+                                 if('success'==res){
+                                     this.$message({
+                                         message: '添加成功',
+                                         type: 'success'
+                                     });
+                                     this.$refs['addForm'].resetFields();
+                                     this.$router.push('/reportforms/report/1');
+                                 }
+                             });
                         });
                     }
                 });
             },
-            submitSuccesss:function(response, file, fileList){
-                if('success'==response){
-                    this.$message({
-                        message: '添加成功',
-                        type: 'success'
-                    });
-                    this.$refs['addForm'].resetFields();
-                    this.$router.push('/reportforms/report/1');
-                }
-            }
+
+
         },
         mounted() {
             this.getUsername();

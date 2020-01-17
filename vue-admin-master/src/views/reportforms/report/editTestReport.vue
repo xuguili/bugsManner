@@ -62,12 +62,11 @@
 			            </el-table-column>
                    </el-table>
                 </el-form-item>
-                <el-form-item label="测试用例" style="margin-top: 146px" >
-                    <el-upload class="upload-demo" ref="upload" action="http://localhost:5000/reportForms/report/editReport"
-                               multiple name="file" :data="editForm"  :file-list="fileList" :before-remove="beforeRemove" :on-success="submitSuccess" :auto-upload="false">
+                <el-form-item label="测试用例">
+                     <el-upload  class="upload-demo" ref="upload" action="" :http-request="handleUpload"  :auto-upload="false"
+					 	:file-list="fileList" >
                         <el-button slot="trigger" size="medium" icon="el-icon-folder" type="primary">选取文件</el-button>
                     </el-upload>
-					<el-link  type="success">{{editForm.useCase}}</el-link>
                 </el-form-item>
                 <el-form-item label="需求分类" prop="type" hidden>
 					<el-select v-model="editForm.type" filterable clearable placeholder="请选择">
@@ -165,7 +164,7 @@
 </template>
 
 <script>
-    import { getReport,getUserName,listNeed,listBug } from "../../../api/api.js";
+    import { getReport,getUserName,listNeed,listBug,editReport } from "../../../api/api.js";
 
     export default {
         data() {
@@ -200,6 +199,7 @@
                     copier:'',
                     conclusion: '',
                     purposes: '',
+					environment:'',
                     need:'',
                     bug:'',
                     useCase: '',
@@ -210,9 +210,14 @@
                     subject: [{required: true, message: '请输入邮件主题', trigger: 'blur'}],
                     recipient: [{required: true, message: '请选择收件人', trigger: 'blur'}]
                 },
+				files:[]
             }
         },
         methods: {
+        	 handleUpload(param) {
+        	 	alert(param.file.name);
+                this.files.push(param.file);// 一般情况下是在这里创建FormData对象，但我们需要上传多个文件，为避免发送多次请求，因此在这里只进行文件的获取，param可以拿到文件上传的所有信息
+            },
             handleCancle() {
                 this.$router.push('/reportforms/report/1');
             },
@@ -331,11 +336,6 @@
                 }).catch(() => {
                 });
             },
-			 //移除测试用例前的确认
-             beforeRemove(file, fileList) {
-        		return this.$confirm('确定移除？');
-      		},
-
 
             //预览邮件
             handleView(){
@@ -420,35 +420,47 @@
                         this.$confirm('确认修改吗？', '提示', {}).then(() => {
                             this.editForm.isSend = isSend;
 
-                            this.editForm.recipient = this.editForm.recipient.join(",");
-                            this.editForm.copier = this.editForm.copier.join(",");
-
                             let ids = new Array();
 
                             for (let i in this.currentneed){
                                 ids.push(this.currentneed[i].id);
                             }
 
-                            this.editForm.need = ids.toString();
-
                             let bug_ids = new Array();
                             for (let i in this.currentbug){
                                 bug_ids.push(this.currentbug[i].id);
                             }
-                            this.editForm.bug = bug_ids.toString();
 
 							this.$refs.upload.submit();
 
-                            // let para = Object.assign({}, this.editForm);
+							let fileData = new FormData();
+							fileData.append('id', this.editForm.id);
+							fileData.append('subject', this.editForm.subject);
+							fileData.append('recipient', this.editForm.recipient.join(","));
+							fileData.append('copier', this.editForm.copier.join(","));
+							fileData.append('conclusion', this.editForm.conclusion);
+							fileData.append('purposes', this.editForm.purposes);
+							fileData.append('environment', this.editForm.environment);
+							fileData.append('need', ids.toString());
+							fileData.append('bug', bug_ids.toString());
+							fileData.append('type', this.editForm.type);
 
-                            // editReport(para).then((res) => {
-                            //     this.$message({
-                            //         message: '编辑成功',
-                            //         type: 'success'
-                            //     });
-                            //     this.$refs['editForm'].resetFields();
-                            //     this.$router.push('/reportforms/report/1');
-                            // });
+							fileData.append('isSend', this.editForm.isSend);
+
+							this.files.forEach(function (file) {// 因为要上传多个文件，所以需要遍历
+                                fileData.append('file', file);
+                            });
+
+							editReport(fileData).then((res) => {
+                                 if('success'==res){
+                                     this.$message({
+                                         message: '修改成功',
+                                         type: 'success'
+                                     });
+                                     this.$refs['editForm'].resetFields();
+                                     this.$router.push('/reportforms/report/1');
+                                 }
+                             });
                         });
                     }
 
@@ -461,26 +473,25 @@
                     if (code=="200"){
 
                         this.editForm=result;//这里相当于给editForm初始化了
+						this.editForm.id = id;
 
                         this.currentneed = result.need;
                         this.currentbug = result.bug;
 
                         this.editForm.recipient = result.recipients.split(';');
                         this.editForm.copier = result.copiers.split(';');
+
+						for(let f in result.files) {
+							let file = {
+								name:result.files[f].name,
+								url:result.files[f].url,
+							};
+							this.fileList.push(file);
+						}
                     }
                 });
 
             },
-			submitSuccess:function(response, file, fileList){
-                if('success'==response){
-                    this.$message({
-                        message: '编辑成功',
-                        type: 'success'
-                    });
-                    this.$refs['editForm'].resetFields();
-                    this.$router.push('/reportforms/report/1');
-                }
-            }
         },
         mounted() {
             this.getUsername();

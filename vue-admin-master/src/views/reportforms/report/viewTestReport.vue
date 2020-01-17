@@ -49,7 +49,10 @@
                    </el-table>
                 </el-form-item>
                 <el-form-item label="六、测试用例" style="margin-top: 100px" >
-                    <div><span>{{viewForm.useCase}}</span></div>
+                    <br>
+                    <div v-for="file in viewForm.files" >
+                        <el-link  :underline="false" :href="file.url">{{file.name}}</el-link>
+                    </div>
                 </el-form-item>
                 <el-form-item label="报告分类" prop="type" hidden>
 					<span>{{viewForm.type}}</span>
@@ -73,6 +76,7 @@
                     copier:'',
                     conclusion: '',
                     purposes: '',
+                    environment:'',
                     need:[],
                     bug:[],
                     useCase: '',
@@ -104,14 +108,19 @@
             }
             else if(this.$route.query.addForm){
                 this.viewForm = this.$route.query.addForm;
+
+                this.viewForm.recipient = this.viewForm.names;
+                this.viewForm.copier = this.viewForm.copier_names;
+                this.viewForm.need = this.viewForm.need;
+                this.viewForm.bug = this.viewForm.bug;
+
+
             }
             else{
                 this.viewForm = this.$route.query.editForm;
 
                 this.viewForm.recipient = this.viewForm.names;
                 this.viewForm.copier = this.viewForm.copier_names;
-
-
 
 
             }
